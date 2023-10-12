@@ -17,14 +17,6 @@ const char* ssid = "mengdu-H68K";
 const char* password = "15935700";
 const unsigned long timeout = 30000; // 30 seconds
 
-//const int buttonPin = 4;    // the number of the pushbutton pin
-//int buttonState;             
-//int lastButtonState = LOW;   
-//unsigned long lastDebounceTime = 0;  // 最后一次拨动输出引脚的时间
-//unsigned long debounceDelay = 50;    // 消抖时间；如果输出闪烁，则增加消抖时间
-//bool isNormalMode = true;
-
-
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap)
 {
    // 图像偏离屏幕底部，停止进一步解码
@@ -33,24 +25,23 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap)
   // 该功能将在 TFT 边界自动剪切图像块渲染
   tft.pushImage(x, y, w, h, bitmap);
 
-  // 如果将草图调整为使用 Adafruit_GFX 库，这个方法也许可以替代它
-  // tft.drawRGBBitmap(x, y, bitmap, w, h);
-
   // Return 1 to decode next block
   return 1;
 }
 
-
+int wifistatus = 0;
 
 void setup() {
   Serial.begin(115200);
-//  delay(1000);
   while(!Serial);
   
   Serial.println();
-//  pinMode(buttonPin, INPUT);
+  delay(1000);
+
+  if(wifiConnect())wifistatus = 1;
 
   Serial.println("INIT DISPLAY");
+  
   tft.begin();
   tft.setRotation(1);
   tft.setTextColor(0xFFFF, 0x0000);
@@ -82,14 +73,17 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_UXGA;
+//  config.frame_size = FRAMESIZE_UXGA;
+  config.frame_size = FRAMESIZE_QVGA;
   config.pixel_format = PIXFORMAT_JPEG; // for streaming
-  //config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
+//  config.pixel_format = PIXFORMAT_RGB565;
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
   config.fb_count = 1;
-
+  
+  // if PSRAM IC present, init with UXGA resolution and higher JPEG quality
+  //                      for larger pre-allocated frame buffer.
   if(config.pixel_format == PIXFORMAT_JPEG){
     if(psramFound()){
       config.jpeg_quality = 10;
@@ -115,6 +109,7 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
+  Serial.println("Camera ready");
 }
 
 bool wifiConnect(){
@@ -123,6 +118,7 @@ bool wifiConnect(){
 
   while(WiFi.status() != WL_CONNECTED){
     delay(500);
+    Serial.print(".");
     if((millis() - startingTime) > timeout){
       return false;
     }
@@ -130,29 +126,6 @@ bool wifiConnect(){
   return true;
 }
 
-//void timerIsr(){
-//  
-//  int reading = digitalRead(buttonPin);
-//  if (reading != lastButtonState) {
-//    lastDebounceTime = millis();
-//  }
-//
-//  if ((millis() - lastDebounceTime) > debounceDelay) {
-//    if (reading != buttonState) {
-//      buttonState = reading;
-//      
-//      if (buttonState == HIGH) {
-//        isNormalMode = !isNormalMode;
-//
-//        //Additional Code 
-//        if(!isNormalMode)
-//          sendingImage();
-//        //   
-//      }
-//    }
-//  }
-//  lastButtonState = reading;
-//}
 
 camera_fb_t* capture(){
   camera_fb_t *fb = NULL;
@@ -160,6 +133,9 @@ camera_fb_t* capture(){
   fb = esp_camera_fb_get();
   return fb;
 }
+
+int yPos = 4; // 声明全局变量yPos
+std::vector<String> labels; // 创建一个向量来存储所有的标签
 
 void showingImage(){
   camera_fb_t *fb = capture();
@@ -170,15 +146,20 @@ void showingImage(){
   }else{
     TJpgDec.drawJpg(0,0,(const uint8_t*)fb->buf, fb->len);
     esp_camera_fb_return(fb);
+    yPos = 4; // 重置yPos
+    for (const auto& label : labels) { // 遍历所有的标签
+      tft.drawString(label, 8, yPos, GFXFF); // 在图像上画出每个标签
+      yPos += 16; // 更新yPos以在下一行显示下一个标签
+    }
   }
 }
-
 
 void parsingResult(String response){
   DynamicJsonDocument doc(1024);
   deserializeJson(doc, response);
   JsonArray array = doc.as<JsonArray>();
-  int yPos = 4;
+  labels.clear(); // 清空labels向量以存储新的标签
+  yPos = 4;
   for(JsonVariant v : array){
     JsonObject object = v.as<JsonObject>();
     const char* description = object["description"];
@@ -189,10 +170,12 @@ void parsingResult(String response){
     label += score;
 
     Serial.println(label);
-    tft.drawString(label, 8, yPos, GFXFF);
+    labels.push_back(label);
     yPos += 16;
   }
 }
+
+
 
 void postingImage(camera_fb_t *fb){
   HTTPClient client;
@@ -208,7 +191,7 @@ void postingImage(camera_fb_t *fb){
   }
 
   client.end();
-  WiFi.disconnect();
+//  WiFi.disconnect();
 }
 
 void sendingImage(){
@@ -220,9 +203,9 @@ void sendingImage(){
   }else{
     TJpgDec.drawJpg(0,0,(const uint8_t*)fb->buf, fb->len);
 
-    tft.drawString("Wifi Connecting!", 8, 4, GFXFF);
+//    tft.drawString("Wifi Connecting!", 8, 4, GFXFF);
 
-    if(wifiConnect()){
+    if(wifistatus){
       //tft.drawString("Wifi Connected!", 8, 4, GFXFF);
       TJpgDec.drawJpg(0,0,(const uint8_t*)fb->buf, fb->len);
       postingImage(fb);
@@ -234,12 +217,12 @@ void sendingImage(){
 }
 
 unsigned long lastTime = 0;  // 记录上次调用sendingImage的时间
-unsigned long interval = 5000;  // 函数调用的间隔（毫秒）
+unsigned long interval = 10000;  // 函数调用的间隔（毫秒）
 
 void loop() {
-//  buttonEvent();
-  
-//  if(isNormalMode)
+
+  showingImage();
+
   unsigned long currentTime = millis();
   // 检查是否已经过了足够的时间
   if (currentTime - lastTime >= interval) {
@@ -250,6 +233,4 @@ void loop() {
     lastTime = currentTime;
   }
 
-  showingImage();
-  
 }
