@@ -20,4 +20,17 @@ The camera's frame recognition and shooting is done continuously at 5-second int
 
 Please modify the ino file with the network name and password and IP address information.
 
+```cpp
+#define ILI9341_DRIVER       // Generic driver for common displays
+#define TFT_MISO D9
+#define TFT_MOSI D10
+#define TFT_SCLK D8
+#define TFT_CS   D0  // Chip select control pin
+#define TFT_DC   D3  // Data Command control pin
+#define TFT_RST  D1  // Reset pin (could connect to RST pin)
+```
 
+LED 5V
+VCC 3.3V
+
+https://www.youtube.com/watch?v=bpCCqerQ56o
